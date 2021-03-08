@@ -5,12 +5,11 @@ using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using NAudio.Midi;
 using Keyboard;
-using System.Threading;
 using System.IO;
+using System.Threading;
 
 namespace midi_gui
 {
@@ -20,6 +19,9 @@ namespace midi_gui
         public static bool running = false;
         public static Lchkey keyfile;
         public static bool isFileChanged;
+        public static bool AdvencedModeOn;
+        public static bool AdevncedModeOnThreadWorking = false;
+        public static int Mode;//1:키추가, 2:LED
         public 메인()
         {
             InitializeComponent();
@@ -33,6 +35,8 @@ namespace midi_gui
             midiIn.Start();
             running = true;
             isFileChanged = false;
+            AdvencedModeOn = false;
+            Mode = 1;
         }
 
         void midiIn_MessageReceived(object sender, MidiInMessageEventArgs e)
@@ -45,6 +49,21 @@ namespace midi_gui
             int b = rawMessage & 0xFF;
             int data1 = (rawMessage >> 8) & 0xFF;
             int data2 = (rawMessage >> 16) & 0xFF;
+            if(b == 144)
+            {
+                int lkey = data1 - 10;
+                if (lkey < 0) return;
+                int loc = lkey / 10 * 8 + lkey % 10;
+                if (loc - 1 < 0 || loc - 1 > 64) return;
+                if (data2 == 127)
+                {
+                    Sender.PressInput(keyfile.KeyCode[loc - 1]);
+                }
+                else
+                {
+                    Sender.UnpressInput(keyfile.KeyCode[loc - 1]);
+                }
+            }
         }
 
         private void 메인_FormClosing(object sender, FormClosingEventArgs e)
@@ -657,15 +676,93 @@ namespace midi_gui
         }
 
         #endregion
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            if (!AdvencedModeOn)
+            {
+                if (AdevncedModeOnThreadWorking) return;
+                //기본 사이즈 : 562, 620
+                //확장후 : 762
+                Thread thread = new Thread(new ThreadStart(delegate ()
+                {
+                    AdevncedModeOnThreadWorking = true;
+                    int h = this.Size.Height;
+                    int w = this.Size.Width;
+                    for (int c = 0; c < 50; c++)
+                    {
+                        w += 4;
+                        this.Invoke(new Action(delegate ()
+                        {
+                            this.Size = new Size(w, h);
+                        }));
+                        
+                        Thread.Sleep(10);
+                    }
+                    AdvencedModeOn = true;
+                    this.Invoke(new Action(delegate ()
+                    {
+                        button4.Text = "◀";
+                    }));
+                    AdevncedModeOnThreadWorking = false;
+                    return;
+                }));
+                thread.Start(); // thread 실행하여 병렬작업 시작
+            }
+            else
+            {
+                int h = this.Size.Height;
+                int w = this.Size.Width;
+                for (int c = 0; c < 50; c++)
+                {
+                    w -= 4;
+                    this.Size = new Size(w, h);
+                    Thread.Sleep(10);
+                }
+                AdvencedModeOn = false;
+                button4.Text = "▶";
+            }
+        }
+
+        private void radioButton1_CheckedChanged(object sender, EventArgs e)
+        {
+            if (radioButton1.Checked)
+            {
+                foreach (Control cont in this.Controls)
+                {
+                    string name = cont.Name;
+                    if (name.Length > 5 && name.Substring(0, 5).Equals("label"))
+                    {
+                        MessageBox.Show(name.Substring(5));
+                    }
+                }
+                Mode = 1;
+            }
+        }
+
+        private void radioButton2_CheckedChanged(object sender, EventArgs e)
+        {
+            if (radioButton2.Checked)
+            {
+                Mode = 2;
+            }
+        }
     }
 }
 
 public class Lchkey
 {
     public List<int> KeyCode;
+    public List<Color> KeyColor;
     private string FilePath;
     public Lchkey(string FP)
     {
+        /*
+         * led 파일형식
+         * 기본적으로, lchkey 파일 64번쨰줄까지는 키코드
+         * 65번째 줄에 led가 있다면,
+         * 66 ~ 130줄까지 16진수 색갈코드
+         */
         FilePath = FP;
         string[] texts = File.ReadAllLines(FP);
         KeyCode = new List<int>();
